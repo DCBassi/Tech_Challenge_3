@@ -1,0 +1,59 @@
+# Medical QA System - Llama-3.2 Fine-Tuned (Tech Challenge 3)
+
+Este projeto apresenta um assistente de inteligência artificial especializado em oncologia (foco em câncer retal). O sistema utiliza uma arquitetura **RAG (Retrieval-Augmented Generation)** integrada com dados estruturados de prontuários, permitindo uma assistência clínica contextualizada e baseada em evidências.
+
+## Arquitetura do Sistema
+
+O projeto foi construído sobre três pilares principais:
+1.  **Fine-Tuning:** Modelo base Llama-3.2-1B ajustado com dataset médico específico.
+2.  **RAG (LangChain + FAISS):** Recuperação de literatura médica atualizada do Cancer.gov.
+3.  **Dados Estruturados (Pandas):** Integração de prontuários via CSV para personalização do atendimento por ID do paciente.
+
+## Como Configurar e Executar
+
+### 1. Pré-requisitos
+Certifique-se de ter o **Python 3.10 ou superior** instalado. Recomenda-se o uso de um ambiente virtual.
+
+### 2. Instalação de Dependências
+Instale todos os pacotes necessários listados no `requirements.txt`:
+
+python -m venv .venv
+
+# Ativar no Windows:
+.\.venv\Scripts\activate
+
+# Ativar no Linux/Mac:
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+### 3. Geração do Modelo (Importante)
+Devido às restrições de tamanho de arquivo do GitHub (limite de 100MB), os pesos do modelo treinado não foram incluídos no repositório. Para reconstruir o modelo localmente, execute o script de treinamento:
+
+python finetune.py
+Este processo gerará a pasta ./models/llama_finetuned/ com os arquivos necessários para a inferência.
+
+### 4. Execução da Aplicação
+Com o ambiente configurado e o modelo gerado, inicie o sistema de QA:
+
+python main.py
+
+# Estrutura de Pastas
+* /assistant/: Contém o llm_loader.py (carregamento do modelo) e chains.py (lógica LangChain).
+* /data/:
+    * /processed/: Dataset .jsonl utilizado no Fine-tuning.
+    * patients.csv: Base de dados estruturada com informações dos pacientes.
+* /models/: Local onde o modelo treinado será salvo.
+* finetune.py: Script para treinamento do modelo.
+* main.py: Ponto de entrada da aplicação.
+
+# Detalhes Técnicos (Requisitos do Projeto)
+* Pipeline LangChain: Orquestração via HuggingFacePipeline para integrar o modelo local.
+* Consultas Estruturadas: Uso de Pandas para buscar informações em registros de prontuários a partir do ID fornecido.
+* Contextualização: O prompt enviado à LLM cruza dinamicamente o histórico do paciente (CSV) com o conhecimento técnico (FAISS).
+* Tratamento de Alucinação: Implementação de prompts restritivos e pós-processamento de texto para garantir respostas concisas e baseadas apenas no contexto fornecido.
+
+### Dicas Finais para o Envio:
+
+1.  **Arquivo `.gitignore`:** Certifique-se de que o seu `.gitignore` está ignorando a pasta `.venv` e os arquivos `.safetensors` para que o próximo `git push` funcione sem erros de tamanho.
+2.  **Dataset:** Verifique se o caminho para o arquivo `dataset_finetuning.jsonl` dentro do seu `main.py` está exatamente igual à pasta que você vai subir no Git.

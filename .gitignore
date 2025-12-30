@@ -1,0 +1,8 @@
+# Ignorar os pesos do modelo
+models/llama_finetuned/
+models/llama_finetuned/*.safetensors
+models/llama_finetuned/*.bin
+
+# Ignorar ambiente virtual
+.venv/
+__pycache__/
