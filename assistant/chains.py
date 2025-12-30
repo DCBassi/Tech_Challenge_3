@@ -1,93 +1,43 @@
 import pandas as pd
-from langchain_core.prompts import PromptTemplate
-from langchain_huggingface import HuggingFacePipeline
-from transformers import pipeline
-from assistant.llm_loader import model, tokenizer, chat_with_model
+from assistant.llm_loader import chat_with_model
 from pathlib import Path
 
-# =========================
-# 1. DADOS ESTRUTURADOS (CONSULTA CSV)
-# =========================
 def get_patient_record(patient_id):
     try:
-        # Define o caminho para o CSV
         BASE_DIR = Path(__file__).resolve().parent.parent
-        csv_path = BASE_DIR / "data" / "patients.csv"
-        
-        # Carrega o "banco de dados"
-        df = pd.read_csv(csv_path)
-        
-        # Converte o ID para string para garantir a comparação
+        df = pd.read_csv(BASE_DIR / "data" / "patients.csv")
         df['id'] = df['id'].astype(str)
-        
-        # Busca o paciente pelo ID
         record = df[df['id'] == str(patient_id)]
-        
-        if not record.empty:
-            # Retorna o registro formatado como dicionário
-            return record.to_dict(orient='records')[0]
-        else:
-            return f"Patient ID {patient_id} not found in database."
-            
-    except Exception as e:
-        return f"Error accessing structured database: {e}"
+        return record.to_dict(orient='records')[0] if not record.empty else None
+    except: return None
 
-# =========================
-# 2. CONFIGURAÇÃO DA PIPELINE LANGCHAIN
-# =========================
-def get_langchain_llm():
-    # Integra seu modelo local ao ecossistema LangChain
-    hf_pipe = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_new_tokens=400,
-        temperature=0.01,
-        repetition_penalty=1.15,
-        do_sample=True
-    )
-    return HuggingFacePipeline(pipeline=hf_pipe)
-
-# =========================
-# 3. CONTEXTUALIZAÇÃO E QA CHAIN
-# =========================
 def create_qa_chain(vectorstore, patient_id=None):
-    """
-    Retorna uma função que integra RAG (FAISS) + Dados Estruturados (Patient Record)
-    """
-    llm = get_langchain_llm()
-    
-    # Busca o prontuário se um ID for fornecido
-    patient_data = get_patient_record(patient_id) if patient_id else "No patient context provided."
+    patient_data = get_patient_record(patient_id)
 
     def qa(query):
-        # A. Busca literatura médica (RAG)
-        docs = vectorstore.similarity_search(query, k=3)
-        medical_context = "\n".join([doc.page_content for doc in docs])
-
-        # B. Template com Contextualização do Paciente
-        # Aqui unimos o requisito de dados estruturados + LLM customizada
-        # No chains.py
-        template = f"""### Instruction:
-        You are a medical specialist assistant. Use the PATIENT RECORD and MEDICAL CONTEXT below to answer the user.
-        Answer specifically for the patient {patient_data.get('name', 'the patient')}, who is {patient_data.get('age')} years old and diagnosed with {patient_data.get('diagnosis')}.
-
-        ### PATIENT RECORD:
-        {patient_data}
-
-        ### MEDICAL CONTEXT:
-        {medical_context}
-
-        ### QUESTION:
-        {query}
-
-### ANSWER:
-"""
+        query_lower = query.lower()
         
-        # C. Execução via Pipeline Customizada
-        # Usamos o chat_with_model ou chamamos a pipeline do langchain
-        # Para garantir consistência com seu treino, vamos usar o chat_with_model diretamente:
-        answer = chat_with_model([{"role": "user", "content": template}])
+        # 1. BYPASS para dados fixos (CSV) - Resposta imediata e precisa
+        if patient_data:
+            if "age" in query_lower:
+                return {"result": f"The patient is {patient_data['age']} years old.", "source_documents": [], "patient_context": patient_data}
+            if ("name" in query_lower or "who is" in query_lower) and "risk" not in query_lower:
+                return {"result": f"The patient's name is {patient_data['name']}.", "source_documents": [], "patient_context": patient_data}
+            if "diagnosis" in query_lower and "what is" not in query_lower:
+                return {"result": f"The patient's current diagnosis is {patient_data['diagnosis']}.", "source_documents": [], "patient_context": patient_data}
+
+        # 2. RAG para Conhecimento Médico (FAISS)
+        # Reduzimos k=1 para o modelo focar em apenas uma fonte e não cortar o texto
+        docs = vectorstore.similarity_search(query, k=1)
+        medical_context = docs[0].page_content if docs else "No specific medical info found."
+        
+        # Prompt mais forte para evitar que o modelo pare no meio
+        template = f"""SYSTEM: Use the context below to answer the user question completely.
+CONTEXT: {medical_context}
+USER QUESTION: {query}
+COMPLETE ANSWER:"""
+        
+        answer = chat_with_model(template, max_new_tokens=450)
 
         return {
             "result": answer, 

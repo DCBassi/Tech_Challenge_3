@@ -1,4 +1,3 @@
-# main.py
 from assistant.llm_loader import LLMDataLoader
 from assistant.chains import create_qa_chain
 from pathlib import Path
