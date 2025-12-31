@@ -20,11 +20,11 @@ def create_qa_chain(vectorstore, patient_id=None):
         # 1. BYPASS para dados fixos (CSV) - Resposta imediata e precisa
         if patient_data:
             if "age" in query_lower:
-                return {"result": f"The patient is {patient_data['age']} years old.", "source_documents": [], "patient_context": patient_data}
+                return {"result": f"The patient is {patient_data['age']} years old.", "source_documents": [], "patient_context": patient_data, "strategy": "csv_direct"}
             if ("name" in query_lower or "who is" in query_lower) and "risk" not in query_lower:
-                return {"result": f"The patient's name is {patient_data['name']}.", "source_documents": [], "patient_context": patient_data}
+                return {"result": f"The patient's name is {patient_data['name']}.", "source_documents": [], "patient_context": patient_data, "strategy": "csv_direct"}
             if "diagnosis" in query_lower and "what is" not in query_lower:
-                return {"result": f"The patient's current diagnosis is {patient_data['diagnosis']}.", "source_documents": [], "patient_context": patient_data}
+                return {"result": f"The patient's current diagnosis is {patient_data['diagnosis']}.", "source_documents": [], "patient_context": patient_data, "strategy": "csv_direct"}
 
         # 2. RAG para Conhecimento Médico (FAISS)
         # Reduzimos k=1 para o modelo focar em apenas uma fonte e não cortar o texto
@@ -42,7 +42,8 @@ COMPLETE ANSWER:"""
         return {
             "result": answer, 
             "source_documents": docs,
-            "patient_context": patient_data
+            "patient_context": patient_data,
+            "strategy": "rag_llm"
         }
 
     return qa

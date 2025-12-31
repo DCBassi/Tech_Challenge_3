@@ -1,5 +1,6 @@
 from assistant.llm_loader import LLMDataLoader
 from assistant.chains import create_qa_chain
+from assistant.logger import log_interaction
 from pathlib import Path
 
 def main():
@@ -46,6 +47,17 @@ def main():
         answer = result.get("result", "Sem resposta disponível.")
         docs = result.get("source_documents", [])
         patient_context = result.get("patient_context", "Sem dados")
+        strategy = result.get("strategy", "unknown")
+        source_urls = [d.metadata.get("url", "Sem fonte") for d in docs] if docs else []
+
+        log_interaction(
+            patient_id=patient_id,
+            question=question,
+            answer=answer,
+            strategy=strategy,
+            sources=source_urls
+        )
+        print("Log registrado com sucesso")
 
         # 4. Exibe a resposta formatada
         print("\n📝 Contexto do Paciente Identificado:")
