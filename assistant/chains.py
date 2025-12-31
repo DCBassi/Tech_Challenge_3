@@ -17,25 +17,38 @@ def create_qa_chain(vectorstore, patient_id=None):
     def qa(query):
         query_lower = query.lower()
         
-        # 1. BYPASS para dados fixos (CSV) - Resposta imediata e precisa
+        # 1. Trava de Entrada (Input Guardrail) - Impede perguntas de tempo e gerais
+        off_topic_inputs = ["time", "hour", "date", "weather", "recipe", "code", "movie", "song", "game","book","shopping","travel","joke"]
+        if any(term in query_lower for term in off_topic_inputs):
+            return {"result": "I am sorry, but I can only assist with clinical and medical inquiries. This topic is out of my scope.", "source_documents": [], "patient_context": patient_data}
+
+        # 2. BYPASS para dados fixos (Mantido original)
         if patient_data:
             if "age" in query_lower:
                 return {"result": f"The patient is {patient_data['age']} years old.", "source_documents": [], "patient_context": patient_data}
             if ("name" in query_lower or "who is" in query_lower) and "risk" not in query_lower:
                 return {"result": f"The patient's name is {patient_data['name']}.", "source_documents": [], "patient_context": patient_data}
-            if "diagnosis" in query_lower and "what is" not in query_lower:
-                return {"result": f"The patient's current diagnosis is {patient_data['diagnosis']}.", "source_documents": [], "patient_context": patient_data}
 
-        # 2. RAG para Conhecimento Médico (FAISS)
-        # Reduzimos k=1 para o modelo focar em apenas uma fonte e não cortar o texto
+        # 3. RAG para Conhecimento Medico
         docs = vectorstore.similarity_search(query, k=1)
-        medical_context = docs[0].page_content if docs else "No specific medical info found."
+        medical_context = docs[0].page_content if docs else "No medical context found."
+        source_url = docs[0].metadata.get("url", "Internal Source") if docs else "N/A"
         
-        # Prompt mais forte para evitar que o modelo pare no meio
-        template = f"""SYSTEM: Use the context below to answer the user question completely.
-CONTEXT: {medical_context}
-USER QUESTION: {query}
-COMPLETE ANSWER:"""
+        # Prompt Ultra-Restritivo em Ingles
+        template = f"""SYSTEM: You are a STRICT Medical Assistant. 
+        You are ONLY allowed to talk about medicine and the provided context.
+        If the question is about time, general knowledge, or anything else, you MUST refuse.
+
+        RULES:
+        1. No prescriptions.
+        2. No definitive diagnoses.
+        3. Only use medical context.
+
+        MEDICAL CONTEXT: {medical_context}
+        SOURCE: {source_url}
+        USER QUESTION: {query}
+
+        ANSWER:"""
         
         answer = chat_with_model(template, max_new_tokens=450)
 
