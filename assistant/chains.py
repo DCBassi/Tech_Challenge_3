@@ -1,54 +1,88 @@
 import pandas as pd
+import re
 from assistant.llm_loader import chat_with_model
 from pathlib import Path
 
 def get_patient_record(patient_id):
+    """Recupera os dados do paciente no CSV."""
     try:
         BASE_DIR = Path(__file__).resolve().parent.parent
-        df = pd.read_csv(BASE_DIR / "data" / "patients.csv")
+        csv_path = BASE_DIR / "data" / "patients.csv"
+        df = pd.read_csv(csv_path)
         df['id'] = df['id'].astype(str)
         record = df[df['id'] == str(patient_id)]
         return record.to_dict(orient='records')[0] if not record.empty else None
-    except: return None
+    except Exception as e:
+        print(f"❌ Erro ao ler CSV de pacientes: {e}")
+        return None
 
 def create_qa_chain(vectorstore, patient_id=None):
+    # Carrega os dados do paciente uma vez no início da cadeia
     patient_data = get_patient_record(patient_id)
 
     def qa(query):
-        query_lower = query.lower()
+        query_lower = query.lower().strip()
         
-        # 1. Trava de Entrada (Input Guardrail) - Impede perguntas de tempo e gerais
-        off_topic_inputs = ["time", "hour", "date", "weather", "recipe", "code", "movie", "song", "game","book","shopping","travel","joke"]
-        if any(term in query_lower for term in off_topic_inputs):
-            return {"result": "I am sorry, but I can only assist with clinical and medical inquiries. This topic is out of my scope.", "source_documents": [], "patient_context": patient_data}
+        # --- 1. FILTRO DE SEGURANÇA (OFF-TOPIC) ---
+        off_topic_terms = ["weather", "recipe", "movie", "joke", "code", "time", "shopping"]
+        if any(term in query_lower for term in off_topic_terms):
+            return {
+                "result": "I am a dedicated clinical assistant. I only provide information regarding medical inquiries and patient records.",
+                "source_documents": [],
+                "patient_context": patient_data
+            }
 
-        # 2. BYPASS para dados fixos (Mantido original)
+        # --- 2. BYPASS ESTRUTURADO (DADOS DO PACIENTE) ---
+        # Esta seção responde SEM usar o LLM/RAG se a pergunta for sobre o John Doe.
         if patient_data:
-            if "age" in query_lower:
-                return {"result": f"The patient is {patient_data['age']} years old.", "source_documents": [], "patient_context": patient_data}
-            if ("name" in query_lower or "who is" in query_lower) and "risk" not in query_lower:
-                return {"result": f"The patient's name is {patient_data['name']}.", "source_documents": [], "patient_context": patient_data}
+            # Busca por NOME (Protegendo para não interceptar "Who is at risk")
+            name_patterns = [r"\bname\b", r"\bwho is the patient\b", r"\bwho is he\b"]
+            if any(re.search(p, query_lower) for p in name_patterns) and "risk" not in query_lower:
+                return {
+                    "result": f"The patient's name is {patient_data['name']}.",
+                    "source_documents": [],
+                    "patient_context": patient_data
+                }
+            
+            # Busca por IDADE
+            if any(term in query_lower for term in ["age", "how old", "years old"]):
+                return {
+                    "result": f"The patient, {patient_data['name']}, is {patient_data['age']} years old.",
+                    "source_documents": [],
+                    "patient_context": patient_data
+                }
 
-        # 3. RAG para Conhecimento Medico
+            # Busca por STATUS ou DIAGNÓSTICO DO PACIENTE
+            # Ex: "What is my status?" ou "What is the patient diagnosis?"
+            status_terms = ["status", "condition", "my diagnosis", "patient's diagnosis", "patient status"]
+            if any(term in query_lower for term in status_terms):
+                return {
+                    "result": f"According to the records, the patient's current status is '{patient_data['status']}' for the diagnosis of {patient_data['diagnosis']}.",
+                    "source_documents": [],
+                    "patient_context": patient_data
+                }
+
+        # --- 3. RAG (CONHECIMENTO MÉDICO GERAL) ---
+        # Se não caiu nos filtros acima, é uma pergunta clínica para o FAISS.
         docs = vectorstore.similarity_search(query, k=1)
-        medical_context = docs[0].page_content if docs else "No medical context found."
-        source_url = docs[0].metadata.get("url", "Internal Source") if docs else "N/A"
+        medical_context = docs[0].page_content if docs else "No specific medical reference found."
+        source_url = docs[0].metadata.get("url", "Internal Clinical Source")
         
-        # Prompt Ultra-Restritivo em Ingles
+        # Inserindo diagrama explicativo se for sobre anatomia ou diagnóstico
+        # 
+
+        # Prompt que integra os dados do paciente com a resposta médica para maior personalização
+        context_for_llm = f"The patient is {patient_data['name']}, {patient_data['age']} years old, with {patient_data['diagnosis']}." if patient_data else ""
+        
         template = f"""SYSTEM: You are a STRICT Medical Assistant. 
-        You are ONLY allowed to talk about medicine and the provided context.
-        If the question is about time, general knowledge, or anything else, you MUST refuse.
+Answer the user's question based ONLY on the Medical Reference provided.
+If the patient's context is relevant (like age or current diagnosis), mention it.
 
-        RULES:
-        1. No prescriptions.
-        2. No definitive diagnoses.
-        3. Only use medical context.
+PATIENT CONTEXT: {context_for_llm}
+MEDICAL REFERENCE: {medical_context}
+USER QUESTION: {query}
 
-        MEDICAL CONTEXT: {medical_context}
-        SOURCE: {source_url}
-        USER QUESTION: {query}
-
-        ANSWER:"""
+FINAL ANSWER (Be objective and clinical):"""
         
         answer = chat_with_model(template, max_new_tokens=450)
 
