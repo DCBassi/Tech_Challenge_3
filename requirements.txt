@@ -1,21 +1,42 @@
+# ===============================
+# PyTorch com CUDA 11.8 (NVIDIA GTX 1060 >)
+# ===============================
+--index-url https://download.pytorch.org/whl/cu118
+
+torch
+torchvision
+torchaudio
+
+# ===============================
+# Core ML / LLM
+# ===============================
+transformers
+datasets
 peft
 accelerate
 sentencepiece
+huggingface-hub
+
+# ===============================
+# LangChain / LangGraph
+# ===============================
 langchain>=0.2.0
 langchain-core>=0.2.0
 langchain-huggingface
 langchain-community
 langgraph
-huggingface-hub
-pydantic
-sqlite-utils
-Transformers
-datasets
-torch
-torchvision
-torchaudio
-numpy
-tqdm
+
+# ===============================
+# Embeddings / Vector DB
+# ===============================
 sentence-transformers
 faiss-cpu
+
+# ===============================
+# Utils
+# ===============================
+numpy
 pandas
+tqdm
+pydantic
+sqlite-utils
