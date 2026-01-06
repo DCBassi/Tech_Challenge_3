@@ -6,3 +6,7 @@ models/llama_finetuned/*.bin
 # Ignorar ambiente virtual
 .venv/
 __pycache__/
+
+# Logs
+logs/
+interaction_logs.jsonl

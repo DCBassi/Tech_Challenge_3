@@ -2,6 +2,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from pathlib import Path
 import json
+import re
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -28,37 +29,32 @@ except Exception as e:
     print(f"Load error: {e}")
 
 def safety_filter(text):
-    # Verificacao de Seguranca e Escopo na Saida
-    # Se a LLM tentar responder algo fora de escopo, o filtro bloqueia.
     low_text = text.lower()
-    
-    # Lista de bloqueio final
-    forbidden = ["prescribe", "take", "dosage", "mg/day", "javascript", "python", "clock", "time is", "the date is","recipe", "code", "movie", "song", "game","book","shopping","travel","joke"]
-    
+    forbidden = ["prescribe", "take", "dosage", "mg/day", "javascript", "python", "recipe", "movie", "song"]
     if any(term in low_text for term in forbidden):
-        return "OUT OF SCOPE / SAFETY ALERT: This request cannot be fulfilled as it is outside the clinical support boundaries."
-    
+        return "I am sorry, but I can only assist with clinical inquiries related to the patient's specific condition."
     return text
 
-def chat_with_model(prompt, max_new_tokens=450):
+def chat_with_model(prompt, max_new_tokens=150):
     if model is None or tokenizer is None: return "Error"
-
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(DEVICE)
+    
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(DEVICE)
 
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=False, 
-            repetition_penalty=1.2,
+            do_sample=False,         # MODO DETERMINÍSTICO: Evita alucinações e "viagens"
+            repetition_penalty=1.6,  # Evita que o modelo fique preso em loops de palavras
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id
         )
 
     response = tokenizer.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True).strip()
-
-    # Limpeza original de rastro
-    stop_words = ["Question:", "###", "Context:", "<|"]
+    
+    # Limpeza de rastro e normalização de espaços
+    response = re.sub(r'\s+', ' ', response) 
+    stop_words = ["Question:", "###", "Context:", "<|", "SYSTEM:", "USER:", "ANSWER:"]
     for stop in stop_words:
         if stop in response:
             response = response.split(stop)[0].strip()
@@ -80,8 +76,10 @@ class LLMDataLoader:
         except: pass
 
     def prepare_embeddings(self):
-        # Explainability: URLs nos metadados
-        docs = [Document(page_content=f"Information: {i['answer']}", metadata={"url": i.get("url", "Internal Source")}) for i in self.dataset if i.get("answer")]
+        # Reduzimos o fragmento para 400 caracteres para não confundir o modelo pequeno
+        docs = [Document(page_content=f"Information: {i['answer'][:400]}", 
+                         metadata={"url": i.get("url", "Internal Source")}) 
+                for i in self.dataset if i.get("answer")]
         if docs:
             self.vectorstore = FAISS.from_documents(docs, self.embeddings)
 
