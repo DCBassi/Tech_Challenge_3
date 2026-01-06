@@ -2,7 +2,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from pathlib import Path
 import json
-
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -22,16 +21,28 @@ try:
         MODEL_PATH, 
         device_map="auto", 
         local_files_only=True,
-        torch_dtype=torch.float16
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
     )
     model.eval()
 except Exception as e:
-    print(f"❌ Erro no carregamento: {e}")
+    print(f"Load error: {e}")
 
-def chat_with_model(prompt, max_new_tokens=450): # Aumentado para suportar respostas longas
+def safety_filter(text):
+    # Verificacao de Seguranca e Escopo na Saida
+    # Se a LLM tentar responder algo fora de escopo, o filtro bloqueia.
+    low_text = text.lower()
+    
+    # Lista de bloqueio final
+    forbidden = ["prescribe", "take", "dosage", "mg/day", "javascript", "python", "clock", "time is", "the date is","recipe", "code", "movie", "song", "game","book","shopping","travel","joke"]
+    
+    if any(term in low_text for term in forbidden):
+        return "OUT OF SCOPE / SAFETY ALERT: This request cannot be fulfilled as it is outside the clinical support boundaries."
+    
+    return text
+
+def chat_with_model(prompt, max_new_tokens=450):
     if model is None or tokenizer is None: return "Error"
 
-    # Aumentamos o max_length para o prompt não ser cortado antes de entrar no modelo
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(DEVICE)
 
     with torch.no_grad():
@@ -46,13 +57,13 @@ def chat_with_model(prompt, max_new_tokens=450): # Aumentado para suportar respo
 
     response = tokenizer.decode(output_ids[0][len(inputs["input_ids"][0]):], skip_special_tokens=True).strip()
 
-    # Limpeza de rastro de sistema
+    # Limpeza original de rastro
     stop_words = ["Question:", "###", "Context:", "<|"]
     for stop in stop_words:
         if stop in response:
             response = response.split(stop)[0].strip()
 
-    return response
+    return safety_filter(response)
 
 class LLMDataLoader:
     def __init__(self, dataset_path):
@@ -69,10 +80,9 @@ class LLMDataLoader:
         except: pass
 
     def prepare_embeddings(self):
-        # Criamos documentos mais densos para o FAISS
-        docs = [Document(page_content=f"Information: {i['answer']}", metadata={"url": i.get("url", "")}) for i in self.dataset if i.get("answer")]
+        # Explainability: URLs nos metadados
+        docs = [Document(page_content=f"Information: {i['answer']}", metadata={"url": i.get("url", "Internal Source")}) for i in self.dataset if i.get("answer")]
         if docs:
-            from langchain_community.vectorstores import FAISS
             self.vectorstore = FAISS.from_documents(docs, self.embeddings)
 
     def get_vectorstore(self):
