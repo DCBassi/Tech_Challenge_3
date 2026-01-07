@@ -27,11 +27,11 @@ def create_qa_chain(vectorstore, patient_id=None):
         # 2. BYPASS CSV (Dados Estáticos)
         if patient_data:
             if any(x in query_lower for x in ["name", "who is"]):
-                return {"result": f"The patient's name is {patient_data['name']}.", "source_documents": [], "patient_context": patient_data}
+                return {"result": f"The patient's name is {patient_data['name']}.", "source_documents": [], "patient_context": patient_data, "strategy": "csv_direct"}
             if "age" in query_lower and len(query_lower.split()) < 6:
-                return {"result": f"The patient is {patient_data['age']} years old.", "source_documents": [], "patient_context": patient_data}
+                return {"result": f"The patient is {patient_data['age']} years old.", "source_documents": [], "patient_context": patient_data, "strategy": "csv_direct"}
             if "status" in query_lower and len(query_lower.split()) < 6:
-                return {"result": f"The status of {patient_data['name']} is {patient_data['status']}.", "source_documents": [], "patient_context": patient_data}
+                return {"result": f"The status of {patient_data['name']} is {patient_data['status']}.", "source_documents": [], "patient_context": patient_data, "strategy": "csv_direct"}
 
         # 3. FILTRO DE AFINIDADE (Segurança Universal)
         diag_full = patient_data['diagnosis'].lower() if patient_data else ""
@@ -63,6 +63,6 @@ def create_qa_chain(vectorstore, patient_id=None):
         if ("sorry" in answer.lower() or "assist" in answer.lower()) and any(dk in query_lower for dk in diag_keywords):
              answer = f"According to clinical records for {patient_data['diagnosis']}: {medical_context[:250]}..."
 
-        return {"result": answer, "source_documents": docs, "patient_context": patient_data}
+        return {"result": answer, "source_documents": docs, "patient_context": patient_data,"strategy": "rag_llm"}
 
     return qa
